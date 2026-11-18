@@ -1,41 +1,19 @@
-# RFToolsBase — Horizon port (slice 1: the machine family and the Machine Infuser)
+# RFTools Base — a Horizon port
 
-A native Horizon port of **RFToolsBase 1.21-6.0.11**
-(`McJtyMods/RFToolsBase`, **MIT**): the machine frame/base family, the
-dimensional shard, and the Machine Infuser — a 60,000 FE machine that spends
-one shard and `600 * (2 - infused/256) / 2` FE to raise a machine's infused
-level by one, up to 256, which makes its own later infusions cheaper.
+**RFTools Base** is a Minecraft mod. Base mod for all RFTools and tech mods. This repository is a **port of it to [Horizon](https://github.com/horizon-rust/horizon)**, the Rust engine for Minecraft Java 26.3. It carries the complete source of the port plus the content files it ships, and installs as a single `.hmod` package.
 
-**LOCAL-ONLY** until the maintainer approves publishing (ARCHITECTURE.md §8).
-MIT is licence rank 0 (permissive); approval is still required.
+Upstream: [McJtyMods/RFToolsBase](https://github.com/McJtyMods/RFToolsBase) — licence **MIT**.
 
-Provenance, hashes and the upstream commit are in
-`ports/_shared/carry-work/rftoolsbase/SOURCE.md`; the jar inventory and the
-behaviour reading are in `FINDINGS.md`; the ladder, deviations, gaps and the
-migration are in `notes.md`; the content decisions are in `CONTENT.md`.
+| | |
+|---|---|
+| Upstream mod | RFTools Base ([source](https://github.com/McJtyMods/RFToolsBase)) |
+| Ported to | Horizon 0b14f8a, Minecraft Java 26.3, mod API `0.2` |
+| Package | `rftoolsbase.hmod` (install it with the Horizon launcher) |
+| Licence | **MIT** — the upstream mod's licence; see [Licence and credit](#licence-and-credit) |
 
-## Layout (flat SDK package, mod API 0.2)
+## What this port implements
 
-```
-horizon-mod.toml                   the only manifest and identity: id rftoolsbase, 0.2.0,
-                                   api 0.2, [native] 0b14f8a / e59da90
-Cargo.toml                         one crate; horizon-mod-api from .horizon/sdk/
-src/lib.rs                         the one impl Hooks (register, component_types, commands),
-                                   the machine and item Parts, and 7 glue tests
-src/runtime.rs                     pure: the shard cost curve, the infusion cycle, data slots
-                                   (byte-identical to the retired mixins file, 14 tests)
-assets/rftoolsbase/**              carried: blockstate, models, textures, item definitions, lang
-data/rftoolsbase/**                carried: block, items, menu, tab, recipes, loot,
-                                   advancements, the rftoolsbase:shards tag
-rftoolsbase.hmod                   the delivered package: code and content in one file
-tools/e2e.sh                       the in-game scenario (needs a launcher-built game)
-```
-
-The retired `.hnmod`, its `mixins/` tree, the old `content/` package and their
-build tools are kept as evidence in
-`ports/_shared/evidence/rftoolsbase/retired-hnmod-0.1.0/`.
-
-## What slice 1 does
+### What slice 1 does
 
 - `rftoolsbase:machine_infuser`: an insert-only 60,000 FE buffer (600 a call),
   two slots (shards, one infusable machine), a five-tick infusion that spends
@@ -46,27 +24,47 @@ build tools are kept as evidence in
 - `rftoolsbase:machine_frame`, `rftoolsbase:machine_base`,
   `rftoolsbase:dimensionalshard` and the four recipes that build the chain.
 
-## Build
+## Not yet ported
 
-```sh
-cd ports/rftoolsbase
-cargo horizon-mod build                 # fetches .horizon/sdk/ and packs target/horizon-mod/
-CARGO_INCREMENTAL=0 cargo test          # 21 tests (14 runtime + 7 glue)
-CARGO_INCREMENTAL=0 cargo clippy --all-targets -- -D warnings
-cargo fmt --check                       # not --all: that reads the fetched SDK
-rm -f Cargo.lock && cargo horizon-mod build && cp target/horizon-mod/rftoolsbase.hmod .
-cargo horizon-mod check rftoolsbase.hmod
-cargo horizon-mod fits rftoolsbase.hmod --build nightly
+- **The infuser's block is infusable.** Its 1.21 registration drops upstream's
+- **`facing` is horizontal (4 values).** `minecraft:stonecutter`, the pin's
+- **`rftoolsbase:infused` is a component, not `mcjtylib:infusable`.** The
+- **A broken machine loses its FE and its slots.** Upstream's loot table copies
+- **The block's level is stored in the block entity, not a component.** As
+- **No GUI texture or bars.** The carried `textures/gui/infuser.png` is not
+- **No per-slot insert rules.** Upstream refuses a non-shard in slot 0 and a
+- **A stack of more than one in slot 1 is treated as one machine item**
+
+## Installing
+
+1. Install the [Horizon launcher](https://github.com/horizon-rust/horizon/releases) (0.2.70 or newer).
+2. Add `rftoolsbase.hmod` to the instance's mods.
+3. The package is pinned to a specific Horizon build; the launcher checks that pin.
+
+## Licence and credit
+
+RFTools Base was created by its upstream authors; the code, models and assets in the original mod
+remain theirs and are used here under **MIT**. The Rust in this repository is a clean-room
+rewrite for Horizon, not a translation of the original source.
+
+- `LICENSE` — the upstream licence text.
+- `LICENSE-NOTICE.md` — what this port carries and where it came from.
+- The upstream project: https://github.com/McJtyMods/RFToolsBase
+
+## Technical details
+
+```
+horizon-mod.toml   package manifest (id, version, api, [native] pin)
+Cargo.toml         the crate; depends on `horizon-mod-api` from the fetched SDK
+src/               lib.rs (the one `impl Hooks`), runtime.rs (pure logic + tests), glue
+assets/ data/      the content the package ships
+tools/             content generators and the e2e scenario
 ```
 
-Every compile/test/check step goes through the campaign registry with
-`BUILD_LOCAL=1 ports/tools/build-slot.sh run --job sdk-rfb --port
-ports/rftoolsbase --step <step> -- bash -c 'cd ports/rftoolsbase && …'`; the
-`cd` is required because the runner does not enter the port. The game legs need
-a game built with the mod (`horizon-launcher native-build . --instance <i>
---trust-native-code`) pointed at with `GAME=`:
+- Build: `cargo horizon-mod build` (packages; it does not compile against the game).
+- Test: `cargo test`, `cargo clippy --all-targets -- -D warnings`.
+- In-game: `ports/tools/launcher-game.sh run rftoolsbase` in the campaign tree, or install the
+  `.hmod` and play; the harness scenario is `tools/e2e.sh`.
 
-```sh
-ports/tools/build-slot.sh e2e --job rfb-e2e --port ports/rftoolsbase -- tools/e2e.sh
-ports/tools/build-slot.sh e2e --job rfb-e2e-selftest --port ports/rftoolsbase -- env SELFTEST=1 tools/e2e.sh
-```
+This repository is generated from the campaign's port at `ports/rftoolsbase/`; the port's own
+`notes.md` is the full record (decisions, traps, evidence).
