@@ -1,0 +1,23 @@
+id = "rftoolsbase"
+name = "RFToolsBase"
+version = "0.2.0"
+description = """RFToolsBase for Horizon: the Machine Infuser, a 60,000 FE machine that spends one
+dimensional shard and a level-dependent amount of energy to raise a machine item's infused level by
+one, up to 256; the machine frame/base family, the dimensional shard, and the carried block, item,
+model, texture, lang, recipe, loot and advancement files inside this package."""
+authors = ["McJty", "AdLf0208"]
+# A native mod: Rust in src/, compiled by the launcher against the game build [native] pins,
+# beside data/ and assets/. The id is the resource namespace and the only identity: Cargo's
+# package name and version are not the mod's.
+api = "0.2"
+# "both" is the installation side, not the hook's: an integrated server belongs to the client
+# installation, so a LAN host or a single-player world needs both. A dedicated server is "server".
+side = "both"
+# The one shared value every manifest carries ("May add blocks, items, mob effects and entity
+# types"); this mod declares the machine's block entity type, its menu and the infused component.
+capabilities = ["registries"]
+
+[native]
+game = "26.3"
+horizon = "0b14f8acfd97fa2c750e42795249dcc981178ca4"
+mixins = "e59da9094f0c2fdda6c627fe9eff22dec6a906f0"
