@@ -16,10 +16,10 @@ use std::array;
 use mod_api::{
     self, BlockEntityPart, BlockEntityRef, BlockEntityTickEvent, BlockEntityTickReply,
     BlockEntityTicksEvent, BlockPart, ClientHost, Command, CommandArgumentValue, CommandSource,
-    ComponentTypesEvent, Compound, DimensionKey, Flow, Hand, Hooks, Host, HostTransaction,
-    Identifier, ItemPart, ItemPlace, ItemStack, LevelRef, ModContainer, ModEnergyBuffer,
-    OnBlockPlacedByEvent, PlayerRef, RegisterCommandsEvent, Registrar, RegistrationContext,
-    RunModCommandEvent, Screen, ScreenDrawEvent, ScreenEvent, ServerHost, Tag, Text, TooltipEvent,
+    ComponentTypesEvent, Compound, DimensionKey, Flow, Hooks, Host, HostTransaction, Identifier,
+    ItemPart, ItemStack, LevelRef, ModContainer, ModEnergyBuffer, OnBlockPlacedByEvent, PlayerRef,
+    RegisterCommandsEvent, Registrar, RegistrationContext, RunModCommandEvent, Screen,
+    ScreenDrawEvent, ScreenEvent, ServerHost, Tag, Text, TooltipEvent,
 };
 
 use runtime::{CAPACITY, INFUSING_TICKS, MAX_INFUSE, MAX_INSERT, Machine};
@@ -334,6 +334,14 @@ fn run_command(host: &mut dyn ServerHost, event: &mut RunModCommandEvent<'_>) ->
                 Some(CommandArgumentValue::String(nonce)) => Some(nonce.as_str()),
                 _ => None,
             };
+            // The readout names both slots' items and counts and the target's infused level:
+            // machine contents, not public state. An operator reads any machine; a player only
+            // one within ordinary interaction reach; any other non-operator source nothing.
+            let (operator, reader) = reader(host, event.source);
+            if !runtime::may_read(operator, reader, *pos) {
+                feedback(host, "That machine is out of reach.");
+                return Flow::Cancel;
+            }
             let Some(level) = dimension_level(host, invocation.dimension) else {
                 feedback(host, "That dimension is not open.");
                 return Flow::Cancel;
@@ -436,6 +444,18 @@ fn set_line(key: &str, pos: [i32; 3], value: i32) -> String {
     } else {
         format!("Machine Infuser at {pos:?}: block infused {value}/{MAX_INFUSE}.")
     }
+}
+
+/// The source's right to read machine contents: whether its permission reaches the operator
+/// level (2, the level every other `/rftoolsbase` subcommand requires), and the player's
+/// position when the source is a player.
+fn reader(host: &dyn ServerHost, source: &CommandSource) -> (bool, Option<[f64; 3]>) {
+    let operator = source.permission().level() >= 2;
+    let player = match source {
+        CommandSource::Player { player, .. } => player.entity().position(host),
+        _ => None,
+    };
+    (operator, player)
 }
 
 /// The open level the invocation executes in (after `execute in`).
@@ -550,22 +570,23 @@ fn set_target_level(host: &mut dyn ServerHost, entity: BlockEntityRef, target: i
 /// Set the machine item the acting player holds to `target` infused levels (the harness's way
 /// to make an infused item).
 fn set_held_level(host: &mut dyn ServerHost, player: PlayerRef, target: i32) -> Option<i32> {
-    let place = ItemPlace::PlayerHand {
-        player: player.uuid(),
-        hand: Hand::Main,
-    };
-    let stack = place.stack(host)?;
+    // The selected slot's stack, written back through `set_inventory_slot`: the inventory is what
+    // the placement reads, so the level has to be on the real stack (an edit of a hand's copy
+    // answered success and left the item unchanged at the 0.2.1 e2e).
+    let slot = u32::try_from(player.selected_slot(&*host)?).ok()?;
+    let mut stack = player
+        .inventory_slots(&*host)?
+        .into_iter()
+        .find(|(at, _)| *at == slot)
+        .map(|(_, stack)| stack)?;
     if !is_infusable(&*host, &stack) {
         return None;
     }
-    let edited = host
-        .transaction(|host, tx| {
-            let mut wrote = false;
-            let swapped = place.edit(host, tx, |stack| wrote = write_infused(stack, target));
-            Ok::<bool, ()>(swapped && wrote)
-        })
-        .unwrap_or(false);
-    edited.then_some(target)
+    if !write_infused(&mut stack, target) {
+        return None;
+    }
+    player.set_inventory_slot(host, slot, Some(stack)).ok()?;
+    Some(target)
 }
 
 // ---------------------------------------------------------------------------

@@ -23,6 +23,36 @@ pub const MAX_INFUSE: i32 = 256;
 /// `startInfusing`: the `infusing` countdown one shard sets.
 pub const INFUSING_TICKS: i32 = 5;
 
+/// How far from a machine a player without operator rights may still read its contents: the
+/// vanilla block-interaction reach (4.5 blocks) plus a block of slack, measured from the
+/// player's position to the block's centre. The harness `/rftoolsbase info` command prints item
+/// ids, counts and the target's infusion level, so a remote read has to be an operator's.
+pub const READ_REACH: f64 = 6.0;
+
+/// Whether a command source may read the machine at `pos`.
+///
+/// `operator` is the source's permission level being at least 2 (an operator, the console, a
+/// command block at that level, or an operator-level function). A player below it may read only
+/// a machine within [`READ_REACH`] — the ordinary "you can touch it" rule — and any other
+/// non-operator source (a `None` player) reads nothing.
+#[must_use]
+pub fn may_read(operator: bool, player: Option<[f64; 3]>, pos: [i32; 3]) -> bool {
+    if operator {
+        return true;
+    }
+    player.is_some_and(|player| {
+        let centre = [
+            f64::from(pos[0]) + 0.5,
+            f64::from(pos[1]) + 0.5,
+            f64::from(pos[2]) + 0.5,
+        ];
+        let distance_squared: f64 = (0..3)
+            .map(|axis| (player[axis] - centre[axis]).powi(2))
+            .sum();
+        distance_squared <= READ_REACH * READ_REACH
+    })
+}
+
 /// `startInfusing`'s cost: `(int) (RFPERTICK * (2.0f - infusedFactor) / 2.0f)`
 /// with `infusedFactor = infused / MAX_INFUSE`, so 600 FE at level 0, 301 at
 /// 255 and 300 at 256. Java's float arithmetic truncates toward zero; the same
@@ -271,5 +301,23 @@ mod tests {
         };
         assert!(machine.tick(false, None, 0).finished);
         assert_eq!(machine.energy, 0);
+    }
+
+    #[test]
+    fn only_an_operator_or_a_nearby_player_reads_a_machine() {
+        let pos = [10, 64, 10];
+        // An operator reads it from anywhere.
+        assert!(may_read(true, Some([500.0, 64.0, 500.0]), pos));
+        // A player reads it from normal interaction range...
+        assert!(may_read(false, Some([13.0, 64.5, 10.5]), pos));
+        assert!(may_read(false, Some([10.5, 64.5, 10.5]), pos));
+        // ...but not from across the level.
+        assert!(!may_read(false, Some([10.5, 64.5, 16.6]), pos));
+        assert!(!may_read(false, Some([-200.0, 64.5, 10.5]), pos));
+        // A non-player source without the operator permission (a function, a
+        // command block below level 2) never reads machine contents remotely.
+        assert!(!may_read(false, None, pos));
+        // Exactly at the reach boundary is still reach.
+        assert!(may_read(false, Some([10.5 + READ_REACH, 64.5, 10.5]), pos));
     }
 }

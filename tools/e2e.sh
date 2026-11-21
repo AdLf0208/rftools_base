@@ -40,7 +40,7 @@ PIN_BIN=$CLONE/ports/_shared/bin/horizon-1d63e0a5
 CTL=${CTL:-$PIN_BIN/horizon-ctl}
 GAME=${GAME:-$PORT/target/horizon-cargo/fast/horizon-client}
 RES=${RES:-${HORIZON_RES:-/home/adlf/Desktop/horizon/.local/horizon-client/26.3}}
-SOCK=${SOCK:-/tmp/opencode/rftoolsbase-e2e.sock}
+SOCK=${SOCK:-${E2E_TMP:-/tmp/opencode}/rftoolsbase-e2e.sock}
 SELFTEST=${SELFTEST:-0}
 KEEP=${KEEP:-0}
 WORLD=RFToolsBaseE2E
@@ -55,7 +55,7 @@ SHARD_ITEM=rftoolsbase:dimensionalshard
 [ -x "$GAME" ] || { echo "missing horizon-client: $GAME" >&2; exit 1; }
 [ -d "$RES/assets" ] || { echo "missing prepared resources: $RES" >&2; exit 1; }
 
-SCRATCH=$(mktemp -d /tmp/opencode/rftoolsbase-home.XXXXXX)
+SCRATCH=$(mktemp -d "${E2E_TMP:-/tmp/opencode}/rftoolsbase-home.XXXXXX")
 export HORIZON_HOME=$SCRATCH/game
 export HORIZON_LAUNCHER_HOME=$SCRATCH/launcher
 export XDG_DATA_HOME=$SCRATCH/data
@@ -265,6 +265,13 @@ echo "== G: an item infused to 100 seeds the block; a shard then costs 482 FE ==
 hold_machine
 say "rftoolsbase held 100"
 ctl wait 12 >/dev/null
+echo "  held inventory: $(ctl inventory | jq -c '[.hotbar[] | select(.item == "rftoolsbase:machine_infuser")]')"
+# The infusion went to the slot the server calls selected; several machine stacks can be in the
+# hotbar, so the placement selects that exact stack instead of `--item`'s first match.
+INFUSED_SLOT=$(ctl inventory | jq -r '[.hotbar[] | select((.components // "") | contains("rftoolsbase:infused"))][0].slot + 1')
+[ -n "$INFUSED_SLOT" ] && [ "$INFUSED_SLOT" != null ] || fail "the infused machine stack is not in the hotbar"
+ctl select "$INFUSED_SLOT" >/dev/null
+ctl wait 3 >/dev/null
 HELD=$(ctl messages 12 | jq -r '.chat[]' | grep -m1 'held item' || true)
 echo "  $HELD"
 case "$HELD" in
@@ -275,8 +282,15 @@ ctl command "execute in minecraft:the_end run tp @s $X0.5 101 8.5" >/dev/null
 ctl wait 6 >/dev/null
 ctl look-at-block "$SX" 100 8 up >/dev/null
 ctl wait 2 >/dev/null
-ctl place "$SX" 101 8 --item "$BLOCK" >/dev/null
+# Place the held, infused stack (no `--item`: that would select the first machine stack in the
+# hotbar, which may be a plain one). Survival is the path that consumes the stack and runs the
+# item-placement notice that seeds the block from the item's component.
+ctl command "gamemode survival @s" >/dev/null
+ctl wait 3 >/dev/null
+ctl place "$SX" 101 8 >/dev/null
 ctl wait 6 >/dev/null
+ctl command "gamemode creative @s" >/dev/null
+ctl wait 3 >/dev/null
 [ "$(block_name "$SX" 101 8)" = "$BLOCK" ] || fail "the infused machine item did not place"
 info "$SX" 101 8
 [ "$BLOCK_INFUSED" = 100 ] || fail "the placed block is infused $BLOCK_INFUSED, expected the item's 100"

@@ -20,19 +20,21 @@ worldgen in this slice).
 
 Pin **`1d63e0a5a37a7a708eb0b32b49bf0dfeb28ed8a9`**, mixins
 **`5a64af938ec86b00d53d16a408aabc0038fb3e57`** (schema 6) — the slice-1 build.
-**Current format:** the flat **SDK package**, version **0.2.0**, mod API `0.2`, at
-Horizon **`0b14f8acfd97fa2c750e42795249dcc981178ca4`** / mixins
-**`e59da9094f0c2fdda6c627fe9eff22dec6a906f0`**; the `.hnmod` container is retired
-(2026-11-18). The migration is [`## Migration to the SDK format`](#migration-to-the-sdk-format-2026-11-18-sdk-0b14f8a);
+**Current format:** the flat **SDK package**, version **0.2.2**, mod API `0.2`, at
+Horizon **`0a875da91dbb0fdcb7ba8c42c11341aa229af51a`** / mixins
+**`e59da9094f0c2fdda6c627fe9eff22dec6a906f0`** (re-pinned from `0b14f8a` on
+2026-11-21, [`## Repin to the campaign pin`](#repin-to-the-campaign-pin-2026-11-21-0a875da));
+the `.hnmod` container is retired (2026-11-18). The migration is
+[`## Migration to the SDK format`](#migration-to-the-sdk-format-2026-11-18-sdk-0b14f8a);
 the retired tree is evidence at
 `ports/_shared/evidence/rftoolsbase/retired-hnmod-0.1.0/`.
 
 Status: **ported-partial** — slice 1 (the base machine family, the dimensional
 shard, and the Machine Infuser with its buffer, slots, infusion cycle, menu,
-placement and tooltip) is implemented; it was verified in-game on the retired
-`.hnmod` (2026-11-10) and is carried to the SDK package with the same runtime
-and tests, but the in-game leg has **not** been re-run at `0b14f8a` (no
-launcher on this box). The gap list below is the rest of the mod.
+placement and tooltip) is implemented and was verified in-game at the campaign
+pin in a **three-package game** (2026-11-21: the infuser scenario A–G and the two
+recipes that name `rftoolsbase:machine_frame`). The gap list below is the rest of
+the mod.
 
 ## Class + tier and the approach
 
@@ -195,6 +197,29 @@ This makes the `.hnmod` the single listable artifact of this port; it does not b
 itself publish it (licence approval is still required, ARCHITECTURE.md §8).
 
 Skills: superpowers/using-superpowers,brainstorming,writing-plans,test-driven-development,systematic-debugging,verification-before-completion; BeautifulRust/rust-best-practices,rust-port
+
+## Review fixes (2026-11-18)
+
+The reviewer's source review of PR #1204 (`var/review-all/1204-rftoolsbase.md`) left one finding;
+it is fixed in **0.2.1** (`40048 B`, sha256 `965003c8970f103385f2c8303fbfc72d0f0a3663beddc91e16c8535d1b9429de`).
+
+- **`src/lib.rs:311` — the level-0 `/rftoolsbase info` command accepted arbitrary coordinates and
+  revealed both slots' item ids and counts and the target's infusion level with no reach or
+  inventory access.** The readout is now gated on the ordinary interaction rules: an operator (or
+  the console) reads any machine, a player only one within `runtime::READ_REACH` (6 blocks, the
+  vanilla interaction reach plus slack), and any other non-operator source nothing. Test:
+  `runtime::tests::only_an_operator_or_a_nearby_player_reads_a_machine`.
+
+Two harness facts were found while making the in-game leg green (both are scenario fixes, not
+assertion changes): `/rftoolsbase held` wrote through `ItemPlace::PlayerHand` and answered success,
+so the level is now written to the selected inventory slot and read back
+(`player.set_inventory_slot`), and the placement step selected `--item`'s *first* machine stack in
+the hotbar instead of the infused one (`ctl place` now uses the held, infused stack, in survival so
+the placement consumes it).
+
+**In-game leg:** `ports/tools/launcher-game.sh run rftoolsbase` → `PASS` + `E2E EXIT:0`, control
+`FAIL: the machine item did not register` + `EXIT:1`, recorded in
+`ports/_shared/evidence/rftoolsbase-e2e/`.
 
 ## Verification
 
@@ -590,3 +615,136 @@ the handles
 > `apply_components`, the block's saved state with `BlockEntityRef::data`/`replace_data`/`set_item_slot`
 > in a transaction, and the shard test with `Tags::is_in_tag`; `runtime.rs` and its 14 tests are
 > unchanged. Version 0.2.0.
+
+## Repin to the campaign pin (2026-11-21, `0a875da`)
+
+### Why
+
+`rftoolsstorage` 0.2.5 had to record **`blocked(rftoolsbase:machine_frame)`** for its own
+`storage_scanner` recipe (`ToT` / `gFg` / `ToT`, `F = rftoolsbase:machine_frame`), and
+`rftoolspower` 0.1.1's phase M proved the same block in `cTc` / `cFc` / `cTc` crafts nothing. Both
+packages are at the campaign pin; this port still declared `0b14f8a`, and
+`ports/tools/launcher-game.sh check_pins` **refuses a game whose packages disagree on
+`[native] horizon`**. So no two-mod RFTools leg could exist, and no child's recipe that names the
+frame could be crafted anywhere. Moving this port to the pin is what makes the family buildable as
+one game.
+
+### What changed
+
+- `[native] horizon` → **`0a875da91dbb0fdcb7ba8c42c11341aa229af51a`**; mixins stay
+  `e59da909…`; version **0.2.2** in `horizon-mod.toml` **and** `Cargo.toml` (the launcher reuses a
+  native build whose manifest is unchanged, so the bump is what forces a fresh compile).
+- **`.horizon/sdk` deleted** before the first build (HANDOVER §9d.17a: a repin alone leaves the old
+  surface cached). `cargo horizon-mod build` answered
+  `SDK 0a875da (build 0a875da91dbb0fdcb7ba8c42c11341aa229af51a) in ./.horizon/sdk`.
+- **No source change.** `src/runtime.rs` and `src/lib.rs` are byte-identical to 0.2.1; `README.md`
+  was updated (it is packed, so it must not describe the old pin).
+- `tools/e2e-craft.sh` is new (the three-package craft differential); `tools/e2e.sh` now honours
+  `E2E_TMP` for its scratch home and socket (it used `/tmp` unconditionally).
+
+### Ladder (all in `build-slot.sh` leases, `BUILD_LOCAL=1`, `CARGO_INCREMENTAL=0`)
+
+| Step | Command | Evidence | Result |
+|---|---|---|---|
+| SDK | `rm -rf .horizon/sdk && cargo horizon-mod build` | `sdk-0a875da/sdk-build-1.log` | `SDK 0a875da (build 0a875da91…)` |
+| tests | `cargo test` | `sdk-0a875da/sdk-test.log` | **22 passed**, 0 failed (14 runtime + 8 glue) |
+| clippy | `cargo clippy --all-targets -- -D warnings` | `sdk-0a875da/sdk-clippy.log` | exit 0, **0 warnings** |
+| fmt | `cargo fmt --check` (not `--all`) | `sdk-0a875da/sdk-fmt.log` | `FMT_EXIT:0` |
+| package | `rm -rf target/horizon-mod && rm -f Cargo.lock && cargo horizon-mod build`, twice | `sdk-build-final1.log`, `sdk-build-final2.log` | **40,089 B**, SHA-256 `4e09f4f800aafaa4f6cc511a2b2781bf1c297484941668d67d9dbe3d831fed20`, **49 entries**, `CMP:identical`, no packed `Cargo.lock` |
+| check | `cargo horizon-mod check rftoolsbase.hmod` | `sdk-check.log` | `CHECK_EXIT:0`; `rftoolsbase 0.2.2 (native-mod, format native-1/0a875da…/e59da90…, for 26.3)` |
+| fits, pin | `cargo horizon-mod fits … --build 0a875da` | `sdk-fits.log` | `0a875da  made for`, `FITS_EXIT:0` |
+| fits, other | `cargo horizon-mod fits … --build 0b14f8a` | `sdk-fits-other.log` | `0b14f8a  fits`, `FITS_OTHER_EXIT:0` |
+| gate | `python3 ports/tools/verify-sdk-package.py rftoolsbase` | — | **1/1**, 8/8 checks |
+| logs | `check-e2e-logs.py rftoolsbase-e2e rftoolsbase --strict` | — | `logs=11 ok=11 missing-exit=0 bad-exit=0` |
+
+`src/runtime.rs` packs as `c5293218484d…` (the tree file), and the package is unsigned local
+build; `check`/`fits` both exit 0 on the delivered bytes.
+
+### In-game: the three packages in one game (the differential)
+
+`ports/_shared/evidence/rftoolsbase-e2e/three-game.sh` assembles a scratch folder with
+`rftoolsbase` 0.2.2 + `rftoolsstorage` 0.2.5 + `rftoolspower` 0.1.1 (all checked at
+`0a875da`/`e59da90`), runs the launcher's `native-build` and exports the version carrying all
+three (log `three-game-build.log`):
+
+```
+rftoolsbase 0.2.2: 0a875da / e59da90
+rftoolsstorage 0.2.5: 0a875da / e59da90
+rftoolspower 0.1.1: 0a875da / e59da90
+Checking 3 mods
+Compiling rftoolsbase (1 of 3)
+Compiling rftoolspower (2 of 3)
+Compiling rftoolsstorage (3 of 3)
+native-0a875da-ce46d69ed6e9 built and selected for its instance.
+```
+
+`native-mods.json` carries `0a875da91dbb0fdcb7ba8c42c11341aa229af51a rftoolsbase 0.2.2 1.99.1`,
+and `horizon-native-mods/rftoolsbase/{horizon-mod.toml,Cargo.toml,README.md,src/lib.rs,src/runtime.rs}`
+are `cmp`-identical to this port. `tools/e2e-craft.sh` (log
+`ports/_shared/evidence/rftoolsbase-e2e/e2e-craft.log`) proves the thing this job exists for:
+
+```
+== A: the three packages are in one game ==
+  in the inventory: rftoolsbase:machine_frame x1
+  in the inventory: rftoolsstorage:storage_scanner x1
+  in the inventory: rftoolspower:coalgenerator x1
+== B: craft rftoolsstorage:storage_scanner (ToT / gFg / ToT, F = rftoolsbase:machine_frame) ==
+  rftoolsstorage:storage_scanner pattern -> 'rftoolsstorage:storage_scanner x1'
+  scanned: scanner=1, frame=0, grid empty
+== C: a stone where rftoolsbase:machine_frame belongs crafts nothing ==
+  same pattern with stone in the frame cell -> 'empty'
+== D: craft rftoolspower:coalgenerator (cTc / cFc / cTc, c = #minecraft:coals) ==
+  rftoolspower:coalgenerator pattern -> 'rftoolspower:coalgenerator x1'
+  built: generator=1, frame=0, grid empty
+PASS: …
+EXIT:0
+```
+
+The take-result path shift-clicks slot 200, then asserts the inventory counts: the scanner and the
+generator each appear **once**, and every ingredient — the frame, the torches, the ender pearls,
+the gold, the coal — reads **0**. Phase C is the wrong-cell control: the same nine cells with
+`minecraft:stone` where the frame belongs must leave the result empty while the stone stays in the
+grid. **The leg cannot pass before the repin**: it needs the frame id, the recipe and a crafting
+table in the same game, which is exactly what two mismatched pins made impossible.
+
+Fail-capability, both recorded:
+
+- `SELFTEST=1` (`e2e-craft-selftest.log`): `FAIL: SELFTEST: the frame cell crafted
+  rftoolsstorage:storage_scanner x1, so the assertion is alive` + `EXIT:1`.
+- `CONTROL=1` on the unmodded Nightly (`e2e-craft-control.log`): every `give` answers
+  `{"error":"unknown item …"}` and A fails with `EXIT:1`.
+
+The slice's own machine scenario was re-run on the same three-package game
+(`e2e-repin-machines.log`): all of A–G pass (`PASS`, `EXIT:0`; 600/301/482 FE curve, the level-256
+refusal, the dirt control), and its `SELFTEST=1` leg exits 1
+(`e2e-repin-machines-selftest.log`).
+
+### Coverage at this pin (slice 1)
+
+| Family | Coverage |
+|---|---|
+| `rftoolsbase:machine_infuser` block + block entity + menu/tooltip | **tested** — A–G (`e2e-repin-machines.log`): placement, 60,000 FE buffer, 5-tick infusion, cost curve 600/301/482, level-256 refusal, non-shard control, placed-item level seeding |
+| `rftoolsbase:machine_frame`/`machine_base`/`dimensionalshard` items | **tested** — present in the three-package game and consumed by both child recipes |
+| the four carried recipes | **partly tested** — `machine_frame` is crafted as an ingredient by the child legs; the infuser recipe is not crafted in this leg (its result is the block, placed in A) |
+| `rftoolsstorage:storage_scanner` recipe (`ToT`/`gFg`/`ToT`) | **tested** — B: result id/count, ingredients consumed, wrong-cell control empty |
+| `rftoolspower:coalgenerator` recipe (`cTc`/`cFc`/`cTc`, `#minecraft:coals`) | **tested** — D: same assertions |
+| shard ores/worldgen, information_screen, security_manager, infused_diamond/enderpearl, tools, Patchouli guide | **not ported** (gap list above, worldgen-last) |
+
+### Gaps after the repin
+
+1. The menu/screen and the two command item writes are still only covered by the retired `.hnmod`
+   run and the unit tests; this leg drives gameplay, not the GUI (`--offscreen` is used, but no
+   screenshot is taken).
+2. The `machine_frame` recipe itself is not crafted in this leg; the two child recipes are the
+   differential this job needed.
+3. Everything the slice did not implement stays a gap (see “Deviations and gaps (slice 1)”).
+
+### Next slice
+
+**The remaining base items, starting with `information_screen` and the `infused_diamond` /
+`infused_enderpearl` chain** — gap 12 of the slice-1 list. It fits the same `machines` tier: a
+carried block/item plus one component and a small hook, no new engine surface. The in-game
+assertion that would prove it: `ctl give rftoolsbase:infused_diamond 1`, craft it from
+`rftoolsbase:dimensionalshard` + `minecraft:diamond` in a real table (assert result id/count and
+both ingredients consumed), and read `ctl block` / the item's `rftoolsbase:infused` component after
+placing the `information_screen` — with the same wrong-cell control.
